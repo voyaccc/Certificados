@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de constancias</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#152044;background:#f1f4f9}*{box-sizing:border-box}body{margin:0;padding:24px}.app{max-width:1100px;margin:auto}h1{margin-bottom:4px}p{color:#526078}.panel{background:white;border-radius:16px;padding:20px;margin:18px 0;box-shadow:0 3px 18px #15204412}label{display:block;font-weight:650;margin:12px 0 6px}textarea,input[type=number],input[type=file]{width:100%;border:1px solid #cbd3df;border-radius:9px;padding:11px;font:inherit}textarea{min-height:110px;resize:vertical}.controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.preview{width:100%;border:1px solid #dbe1eb;border-radius:10px;display:block}button{border:0;background:#172b62;color:white;border-radius:10px;padding:13px 19px;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.secondary{background:#e8edf7;color:#172b62}.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.hint{font-size:13px;color:#64748b}#status{font-weight:600;color:#25436d}@media(max-width:650px){body{padding:12px}.controls{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body><main class="app">
+<h1>Generador de constancias</h1><p>Plantilla del simposio «Líderes del Mañana». Cada nombre genera un PDF individual.</p>
+<section class="panel">
+<label for="template">Plantilla (opcional: cambia la imagen incluida)</label><input id="template" type="file" accept="image/png,image/jpeg">
+<label for="names">Nombres completos, separados por comas</label>
+<textarea id="names" placeholder="Juan Pérez López, María González Ruiz, Carlos Hernández Díaz">Juan Pérez López, María González Ruiz</textarea>
+<div class="controls">
+<div><label for="posX">Centro horizontal (px)</label><input id="posX" type="number" value="830" min="0"></div>
+<div><label for="posY">Centro vertical (px)</label><input id="posY" type="number" value="541" min="0"></div>
+<div><label for="fontSize">Tamaño máximo (px)</label><input id="fontSize" type="number" value="43" min="10" max="100"></div>
+</div>
+<p class="hint">La posición está calibrada para la imagen de 1600 × 1131 píxeles. Puedes hacer clic en la vista previa para mover el nombre.</p>
+</section>
+<section class="panel"><h2>Vista previa</h2><canvas id="canvas" class="preview" width="1600" height="1131"></canvas><p class="hint">Se muestra el primer nombre de la lista. El PDF conserva las proporciones originales.</p><div class="actions"><button id="generate">Generar PDF y descargar ZIP</button><button class="secondary" id="single">Descargar PDF de prueba</button><span id="status" role="status"></span></div></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+const img=new Image();let loaded=false;
+img.onload=()=>{loaded=true;canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;render()};
+img.onerror=()=>{$('status').textContent='No se encontró plantilla.jpg. Colócala junto a index.html o selecciona otra imagen.'};
+img.src='plantilla.jpg';
+function getNames(){return $('names').value.split(/[,\n;]+/).map(s=>s.trim().replace(/\s+/g,' ')).filter(Boolean)}
+function settings(){return {x:Number($('posX').value),y:Number($('posY').value),size:Number($('fontSize').value)}}
+function render(name=getNames()[0]||'NOMBRE COMPLETO'){
+if(!loaded)return;
+ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+const {x,y,size}=settings();const scale=canvas.width/1600;
+const fontMax=Math.max(10,size*scale),maxWidth=900*scale;
+let font=fontMax;
+ctx.textAlign='center';ctx.textBaseline='middle';
+while(font>14*scale){ctx.font=`600 ${font}px Georgia, "Times New Roman", serif`;if(ctx.measureText(name).width<=maxWidth)break;font-=1*scale}
+ctx.fillStyle='#101d47';ctx.fillText(name,x*scale,y*(canvas.height/1131),maxWidth);
+}
+['names','posX','posY','fontSize'].forEach(id=>$(id).addEventListener('input',()=>render()));
+$('template').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const url=URL.createObjectURL(f);img.onload=()=>{loaded=true;canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;render();URL.revokeObjectURL(url)};img.src=url});
+canvas.addEventListener('click',e=>{const rect=canvas.getBoundingClientRect();$('posX').value=Math.round((e.clientX-rect.left)/rect.width*1600);$('posY').value=Math.round((e.clientY-rect.top)/rect.height*1131);render()});
+function createPdf(name){render(name);const {jsPDF}=window.jspdf;const w=canvas.width,h=canvas.height;const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:[w/4,h/4],compress:true});pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,w/4,h/4);return pdf.output('arraybuffer')}
+function downloadBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
+function safeName(s){return s.normalize('NFC').replace(/[\\/:*?"<>|\x00-\x1f]/g,'').trim().slice(0,140)||'Sin nombre'}
+$('single').addEventListener('click',()=>{if(!loaded||!window.jspdf)return alert('Espera a que carguen la plantilla y las librerías.');const name=getNames()[0]||'Ejemplo';downloadBlob(new Blob([createPdf(name)],{type:'application/pdf'}),safeName(name)+'.pdf');render()});
+$('generate').addEventListener('click',async()=>{
+const names=getNames();if(!names.length)return alert('Escribe al menos un nombre.');if(!loaded||!window.jspdf||!window.JSZip)return alert('No se ha cargado la plantilla o las librerías. Revisa tu conexión a internet.');
+const button=$('generate');button.disabled=true;const zip=new JSZip(),used=new Map();
+try{for(let i=0;i<names.length;i++){const name=names[i];$('status').textContent=`Generando ${i+1} de ${names.length}...`;let base=safeName(name),count=used.get(base)||0;used.set(base,count+1);if(count)base+=` (${count+1})`;zip.file(base+'.pdf',createPdf(name));if(i%5===0)await new Promise(resolve=>setTimeout(resolve,0))}
+$('status').textContent='Comprimiendo ZIP...';const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:5}});downloadBlob(blob,'Constancias.zip');$('status').textContent=`¡Listo! ${names.length} constancias generadas.`;
+}catch(err){console.error(err);$('status').textContent='Ocurrió un error: '+err.message}finally{button.disabled=false;render()}
+});
+</script></body></html>
